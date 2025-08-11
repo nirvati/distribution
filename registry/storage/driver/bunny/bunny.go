@@ -12,6 +12,7 @@ import (
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
 	"github.com/distribution/distribution/v3/registry/storage/driver/factory"
 	bunny "github.com/l0wl3vel/bunny-storage-go-sdk"
+	"github.com/sirupsen/logrus"
 )
 
 func init() {
@@ -34,6 +35,9 @@ func (factory *bunnyDriverFactory) Create(ctx context.Context, parameters map[st
 
 func New(ctx context.Context, params *DriverParameters) (storagedriver.StorageDriver, error) {
 	client := bunny.NewClient(*params.Hostname.JoinPath(params.StorageZone), params.apiKey)
+	logrusLogger := logrus.New()
+	logrusLogger.SetLevel(logrus.DebugLevel)
+	client.WithLogger(logrusLogger)
 	return &driver{
 		pullZone: params.Pullzone,
 		client:   client,
