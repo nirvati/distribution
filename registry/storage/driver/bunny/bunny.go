@@ -175,7 +175,7 @@ func (b *bunnyFileReader) Read(p []byte) (n int, err error) {
 	}
 	n = copy(p, data)
 	b.offset += int64(n)
-	if n == 0 && err == nil {
+	if n == 0 {
 		return 0, io.EOF
 	}
 	return n, nil
