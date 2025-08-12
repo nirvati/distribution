@@ -4,6 +4,7 @@ package bunny
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -36,7 +37,7 @@ func (factory *bunnyDriverFactory) Create(ctx context.Context, parameters map[st
 func New(ctx context.Context, params *DriverParameters) (storagedriver.StorageDriver, error) {
 	client := bunny.NewClient(*params.Hostname.JoinPath(params.StorageZone), params.apiKey)
 	logrusLogger := logrus.New()
-	logrusLogger.SetLevel(logrus.DebugLevel)
+	logrusLogger.SetLevel(logrus.InfoLevel)
 	client.WithLogger(logrusLogger)
 	return &driver{
 		pullZone: params.Pullzone,
@@ -140,14 +141,11 @@ func (d *driver) Walk(ctx context.Context, path string, f storagedriver.WalkFn, 
 // Writer implements driver.StorageDriver.
 func (d *driver) Writer(ctx context.Context, path string, append bool) (storagedriver.FileWriter, error) {
 	if append {
+		fmt.Println("Appending to existing file:", path)
 		// Get the current file as the starting buffer
 		content, err := d.client.Download(path)
-		if err != nil && err.Error() != "Not Found" {
+		if err != nil {
 			return nil, err
-		}
-		if err != nil && err.Error() == "Not Found" {
-			// If the file does not exist, we can start with an empty buffer
-			content = []byte{}
 		}
 		return &BunnyFileWriter{
 			client: d.client,
@@ -229,6 +227,5 @@ func (b *BunnyFileWriter) Close() error {
 		return nil // If cancelled, do not write
 	}
 	err := b.client.Upload(b.path, b.buffer, true)
-	b.buffer = nil // Clear the buffer after writing
 	return err
 }
