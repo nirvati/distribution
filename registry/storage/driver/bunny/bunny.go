@@ -92,7 +92,12 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 	if err != nil {
 		return err
 	}
-	return d.client.Upload(destPath, content, true)
+	err = d.client.Upload(destPath, content, true)
+	if err != nil {
+		return err
+	}
+	return d.client.Delete(sourcePath, false) // Delete the source file after moving
+
 }
 
 // Name implements driver.StorageDriver.
