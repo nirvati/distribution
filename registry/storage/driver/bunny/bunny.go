@@ -160,7 +160,13 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 	fmt.Println("Getting file info for path:", path)
 	info, err := d.client.Describe(path)
 	if err != nil {
-		return nil, err
+		if err.Error() == "Not Found" {
+			fmt.Println("File not found:", path)
+			return nil, storagedriver.PathNotFoundError{Path: path}
+		} else {
+			fmt.Println("Error describing file:", err)
+			return nil, err
+		}
 	}
 	modTime, err := time.Parse("2006-01-02T15:04:05.000", info.LastChanged)
 	if err != nil {
