@@ -98,7 +98,6 @@ func (d *driver) Name() string {
 
 // PutContent implements driver.StorageDriver.
 func (d *driver) PutContent(ctx context.Context, path string, content []byte) error {
-	fmt.Println("Putting content for path:", path)
 	return d.client.Upload(path, content, true)
 }
 
@@ -228,10 +227,10 @@ func (b *BunnyFileWriter) Write(p []byte) (n int, err error) {
 
 func (b *BunnyFileWriter) Close() error {
 	fmt.Println("Closing BunnyFileWriter for path:", b.path)
-	if len(b.buffer) == 0 {
+	/*if len(b.buffer) == 0 {
 		fmt.Println("No data to write, skipping upload.")
 		return nil // Nothing to write
-	}
+	}*/
 	if b.isCancelled {
 		fmt.Println("Upload cancelled, not writing to Bunny.")
 		return nil // If cancelled, do not write
