@@ -226,6 +226,8 @@ func (b *bunnyFileReader) Close() error {
 
 // Read implements io.ReadCloser.
 func (b *bunnyFileReader) Read(p []byte) (n int, err error) {
+	fmt.Println("Reading from BunnyFileReader for path:", b.path, "at offset:", b.offset, "with buffer size:", len(p))
+	fmt.Println("Range start:", b.offset, "Range end:", b.offset+int64(len(p)))
 	data, err := b.client.DownloadPartial(b.path, b.offset, b.offset+int64(len(p)))
 	if err != nil {
 		fmt.Println("Error reading from BunnyFileReader:", err)
