@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"runtime/debug"
 	"time"
 
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
@@ -56,6 +55,10 @@ type driver struct {
 // Delete implements driver.StorageDriver.
 func (d *driver) Delete(ctx context.Context, path string) error {
 	info, err := d.client.Describe(path)
+	if err != nil && err.Error() == "Not Found" {
+		// Don't fail for not found, just return nil
+		return nil
+	}
 	if err != nil {
 		return err
 	}
@@ -204,8 +207,6 @@ type BunnyFileWriter struct {
 // Cancel implements driver.FileWriter.
 func (b *BunnyFileWriter) Cancel(context.Context) error {
 	fmt.Println("Cancelling BunnyFileWriter for path:", b.path)
-	// Print the backtrace for debugging
-	debug.PrintStack()
 	b.isCancelled = true
 	return nil
 }
