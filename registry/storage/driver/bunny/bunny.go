@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"runtime/debug"
 	"strings"
 	"time"
 
@@ -71,7 +70,6 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 // GetContent implements driver.StorageDriver.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	fmt.Println("Getting content for path:", path)
-	debug.PrintStack()
 	return d.client.Download(path)
 }
 
@@ -123,11 +121,13 @@ func (d *driver) Name() string {
 
 // PutContent implements driver.StorageDriver.
 func (d *driver) PutContent(ctx context.Context, path string, content []byte) error {
+	fmt.Println("Putting content to path:", path)
 	return d.client.Upload(path, content, true)
 }
 
 // Reader implements driver.StorageDriver.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
+	fmt.Println("Creating reader for path:", path, "with offset:", offset)
 	return &bunnyFileReader{
 		client: d.client,
 		path:   path,
@@ -137,11 +137,13 @@ func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.Read
 
 // RedirectURL implements driver.StorageDriver.
 func (d *driver) RedirectURL(r *http.Request, path string) (string, error) {
+	fmt.Println("Creating redirect URL for path:", path)
 	return d.pullZone.JoinPath(path).String(), nil
 }
 
 // Stat implements driver.StorageDriver.
 func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo, error) {
+	fmt.Println("Getting file info for path:", path)
 	info, err := d.client.Describe(path)
 	if err != nil {
 		return nil, err
@@ -263,5 +265,8 @@ func (b *BunnyFileWriter) Close() error {
 	}
 	err := b.client.Upload(b.path, b.buffer, true)
 	fmt.Println("Upload completed for path:", b.path)
+	if err != nil {
+		fmt.Println("Error uploading to Bunny:", err)
+	}
 	return err
 }
