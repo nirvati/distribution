@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"time"
 
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
@@ -68,6 +69,7 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 // GetContent implements driver.StorageDriver.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	fmt.Println("Getting content for path:", path)
+	debug.PrintStack()
 	return d.client.Download(path)
 }
 
