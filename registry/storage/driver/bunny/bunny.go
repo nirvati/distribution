@@ -142,10 +142,20 @@ func (d *driver) PutContent(ctx context.Context, path string, content []byte) er
 // Reader implements driver.StorageDriver.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
 	fmt.Println("Creating reader for path:", path, "with offset:", offset)
+	info, err := d.client.Describe(path)
+	if err != nil {
+		if err.Error() == "Not Found" {
+			fmt.Println("File not found:", path)
+			return nil, storagedriver.PathNotFoundError{Path: path}
+		}
+		fmt.Println("Error describing file:", err)
+		return nil, err
+	}
 	return &bunnyFileReader{
-		client: d.client,
-		path:   path,
-		offset: offset,
+		client:   d.client,
+		path:     path,
+		offset:   offset,
+		fileSize: int64(info.Length),
 	}, nil
 }
 
@@ -213,9 +223,10 @@ func (d *driver) Writer(ctx context.Context, path string, append bool) (storaged
 }
 
 type bunnyFileReader struct {
-	client bunny.Client
-	path   string
-	offset int64
+	client   bunny.Client
+	path     string
+	offset   int64
+	fileSize int64
 }
 
 // Close implements io.ReadCloser.
@@ -226,6 +237,10 @@ func (b *bunnyFileReader) Close() error {
 
 // Read implements io.ReadCloser.
 func (b *bunnyFileReader) Read(p []byte) (n int, err error) {
+	if b.offset >= b.fileSize {
+		fmt.Println("Reached end of file for path:", b.path)
+		return 0, io.EOF // End of file
+	}
 	fmt.Println("Reading from BunnyFileReader for path:", b.path, "at offset:", b.offset, "with buffer size:", len(p))
 	fmt.Println("Range start:", b.offset, "Range end:", b.offset+int64(len(p)))
 	data, err := b.client.DownloadPartial(b.path, b.offset, b.offset+int64(len(p)))
