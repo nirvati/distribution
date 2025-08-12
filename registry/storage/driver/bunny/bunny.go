@@ -63,6 +63,7 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 
 // GetContent implements driver.StorageDriver.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
+	fmt.Println("Getting content for path:", path)
 	return d.client.Download(path)
 }
 
@@ -81,6 +82,7 @@ func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 
 // Move implements driver.StorageDriver.
 func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) error {
+	fmt.Println("Moving from", sourcePath, "to", destPath)
 	// Bunny Storage does not support moving files directly, so we need to download and re-upload.
 	content, err := d.client.Download(sourcePath)
 	if err != nil {
@@ -96,6 +98,7 @@ func (d *driver) Name() string {
 
 // PutContent implements driver.StorageDriver.
 func (d *driver) PutContent(ctx context.Context, path string, content []byte) error {
+	fmt.Println("Putting content for path:", path)
 	return d.client.Upload(path, content, true)
 }
 
@@ -153,6 +156,7 @@ func (d *driver) Writer(ctx context.Context, path string, append bool) (storaged
 			buffer: content,
 		}, nil
 	} else {
+		fmt.Println("Creating new file:", path)
 		// Start with an empty buffer for new files
 		return &BunnyFileWriter{
 			client: d.client,
@@ -170,6 +174,7 @@ type bunnyFileReader struct {
 
 // Close implements io.ReadCloser.
 func (b *bunnyFileReader) Close() error {
+	fmt.Println("Closing BunnyFileReader for path:", b.path)
 	return nil
 }
 
@@ -204,6 +209,7 @@ func (b *BunnyFileWriter) Cancel(context.Context) error {
 
 // Commit implements driver.FileWriter.
 func (b *BunnyFileWriter) Commit(context.Context) error {
+	fmt.Println("Comitting to BunnyFileWriter for path:", b.path)
 	return nil
 }
 
@@ -215,15 +221,19 @@ func (b *BunnyFileWriter) Size() int64 {
 var _ storagedriver.FileWriter = &BunnyFileWriter{}
 
 func (b *BunnyFileWriter) Write(p []byte) (n int, err error) {
+	fmt.Println("Writing to BunnyFileWriter for path:", b.path)
 	b.buffer = append(b.buffer, p...)
 	return len(p), nil
 }
 
 func (b *BunnyFileWriter) Close() error {
+	fmt.Println("Closing BunnyFileWriter for path:", b.path)
 	if len(b.buffer) == 0 {
+		fmt.Println("No data to write, skipping upload.")
 		return nil // Nothing to write
 	}
 	if b.isCancelled {
+		fmt.Println("Upload cancelled, not writing to Bunny.")
 		return nil // If cancelled, do not write
 	}
 	err := b.client.Upload(b.path, b.buffer, true)
