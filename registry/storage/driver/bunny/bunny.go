@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"runtime/debug"
 	"time"
 
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
@@ -202,6 +203,9 @@ type BunnyFileWriter struct {
 
 // Cancel implements driver.FileWriter.
 func (b *BunnyFileWriter) Cancel(context.Context) error {
+	fmt.Println("Cancelling BunnyFileWriter for path:", b.path)
+	// Print the backtrace for debugging
+	debug.PrintStack()
 	b.isCancelled = true
 	return nil
 }
