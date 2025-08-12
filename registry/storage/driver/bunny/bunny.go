@@ -122,7 +122,7 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 	if err != nil {
 		return nil, err
 	}
-	modTime, err := time.Parse(time.RFC3339, info.LastChanged)
+	modTime, err := time.Parse("2006-01-02T15:04:05.000", info.LastChanged)
 	if err != nil {
 		return nil, err
 	}
