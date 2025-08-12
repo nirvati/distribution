@@ -81,7 +81,7 @@ func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 	}
 	var result []string
 	for _, entry := range entries {
-		result = append(result, entry.ObjectName)
+		result = append(result, entry.Path)
 	}
 	return result, nil
 }
