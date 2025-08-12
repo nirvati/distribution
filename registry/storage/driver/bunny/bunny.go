@@ -93,7 +93,7 @@ func (d *driver) List(ctx context.Context, searchPath string) ([]string, error) 
 		if len(parts) > 0 {
 			parts = parts[1:]
 		}
-		filepath = path.Join(parts...)
+		filepath = "/" + path.Join(parts...)
 		fmt.Println("Entry path:", filepath)
 		result = append(result, filepath)
 	}
