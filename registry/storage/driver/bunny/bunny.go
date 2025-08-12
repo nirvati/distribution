@@ -49,7 +49,6 @@ var _ storagedriver.StorageDriver = &driver{}
 type driver struct {
 	pullZone url.URL
 	client   bunny.Client
-	logger   logrus.Logger
 }
 
 // Delete implements driver.StorageDriver.
@@ -63,7 +62,6 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 
 // GetContent implements driver.StorageDriver.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
-	d.logger.WithField("path", path).Debug("Downloading content")
 	return d.client.Download(path)
 }
 
@@ -82,7 +80,6 @@ func (d *driver) List(ctx context.Context, path string) ([]string, error) {
 
 // Move implements driver.StorageDriver.
 func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) error {
-	d.logger.WithField("sourcePath", sourcePath).WithField("destPath", destPath).Debug("Moving file")
 	// Bunny Storage does not support moving files directly, so we need to download and re-upload.
 	content, err := d.client.Download(sourcePath)
 	if err != nil {
@@ -103,7 +100,6 @@ func (d *driver) PutContent(ctx context.Context, path string, content []byte) er
 
 // Reader implements driver.StorageDriver.
 func (d *driver) Reader(ctx context.Context, path string, offset int64) (io.ReadCloser, error) {
-	d.logger.WithField("path", path).WithField("offset", offset).Debug("Creating reader")
 	return &bunnyFileReader{
 		client: d.client,
 		path:   path,
@@ -146,8 +142,12 @@ func (d *driver) Writer(ctx context.Context, path string, append bool) (storaged
 	if append {
 		// Get the current file as the starting buffer
 		content, err := d.client.Download(path)
-		if err != nil {
+		if err != nil && err.Error() != "Not Found" {
 			return nil, err
+		}
+		if err != nil && err.Error() == "Not Found" {
+			// If the file does not exist, we can start with an empty buffer
+			content = []byte{}
 		}
 		return &BunnyFileWriter{
 			client: d.client,
