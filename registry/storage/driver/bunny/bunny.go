@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"path"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	storagedriver "github.com/distribution/distribution/v3/registry/storage/driver"
@@ -84,8 +85,17 @@ func (d *driver) List(ctx context.Context, searchPath string) ([]string, error) 
 	}
 	var result []string
 	for _, entry := range entries {
-		fmt.Println("Entry path:", path.Join(entry.Path, entry.ObjectName))
-		result = append(result, path.Join(entry.Path, entry.ObjectName))
+		filepath := path.Join(entry.Path, entry.ObjectName)
+		parts := strings.Split(filepath, "/")
+		if parts[0] == "" {
+			parts = parts[1:]
+		}
+		if len(parts) > 0 {
+			parts = parts[1:]
+		}
+		filepath = path.Join(parts...)
+		fmt.Println("Entry path:", filepath)
+		result = append(result, filepath)
 	}
 	return result, nil
 }
