@@ -70,7 +70,12 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 // GetContent implements driver.StorageDriver.
 func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 	fmt.Println("Getting content for path:", path)
-	return d.client.Download(path)
+	res, err := d.client.Download(path)
+	if err != nil {
+		fmt.Println("Error downloading content:", err)
+		return nil, err
+	}
+	return res, nil
 }
 
 // List implements driver.StorageDriver.
@@ -79,6 +84,7 @@ func (d *driver) List(ctx context.Context, searchPath string) ([]string, error) 
 	entries, err := d.client.List(searchPath)
 	fmt.Println("Entries found:", len(entries))
 	if err != nil {
+		fmt.Println("Error listing contents:", err)
 		return nil, err
 	}
 	var result []string
@@ -208,6 +214,7 @@ func (b *bunnyFileReader) Close() error {
 func (b *bunnyFileReader) Read(p []byte) (n int, err error) {
 	data, err := b.client.DownloadPartial(b.path, b.offset, int64(len(p)))
 	if err != nil {
+		fmt.Println("Error reading from BunnyFileReader:", err)
 		return 0, err
 	}
 	n = copy(p, data)
