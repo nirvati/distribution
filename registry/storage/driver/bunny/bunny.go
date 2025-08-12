@@ -240,5 +240,6 @@ func (b *BunnyFileWriter) Close() error {
 		return nil // If cancelled, do not write
 	}
 	err := b.client.Upload(b.path, b.buffer, true)
+	fmt.Println("Upload completed for path:", b.path)
 	return err
 }
