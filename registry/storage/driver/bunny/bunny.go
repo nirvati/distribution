@@ -110,10 +110,12 @@ func (d *driver) Move(ctx context.Context, sourcePath string, destPath string) e
 	// Bunny Storage does not support moving files directly, so we need to download and re-upload.
 	content, err := d.client.Download(sourcePath)
 	if err != nil {
+		fmt.Println("Error downloading source file:", err)
 		return err
 	}
 	err = d.client.Upload(destPath, content, true)
 	if err != nil {
+		fmt.Println("Error uploading to destination path:", err)
 		return err
 	}
 	return d.client.Delete(sourcePath, false) // Delete the source file after moving
@@ -128,7 +130,13 @@ func (d *driver) Name() string {
 // PutContent implements driver.StorageDriver.
 func (d *driver) PutContent(ctx context.Context, path string, content []byte) error {
 	fmt.Println("Putting content to path:", path)
-	return d.client.Upload(path, content, true)
+	err := d.client.Upload(path, content, true)
+	if err != nil {
+		fmt.Println("Error uploading content:", err)
+		return err
+	}
+	fmt.Println("Content uploaded successfully to path:", path)
+	return nil
 }
 
 // Reader implements driver.StorageDriver.
