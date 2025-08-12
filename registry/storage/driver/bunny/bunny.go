@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"runtime/debug"
 	"time"
 
@@ -74,17 +75,17 @@ func (d *driver) GetContent(ctx context.Context, path string) ([]byte, error) {
 }
 
 // List implements driver.StorageDriver.
-func (d *driver) List(ctx context.Context, path string) ([]string, error) {
-	fmt.Println("Listing contents of path:", path)
-	entries, err := d.client.List(path)
+func (d *driver) List(ctx context.Context, searchPath string) ([]string, error) {
+	fmt.Println("Listing contents of path:", searchPath)
+	entries, err := d.client.List(searchPath)
 	fmt.Println("Entries found:", len(entries))
 	if err != nil {
 		return nil, err
 	}
 	var result []string
 	for _, entry := range entries {
-		fmt.Println("Entry path:", entry.Path)
-		result = append(result, entry.Path)
+		fmt.Println("Entry path:", path.Join(entry.Path, entry.ObjectName))
+		result = append(result, path.Join(entry.Path, entry.ObjectName))
 	}
 	return result, nil
 }
