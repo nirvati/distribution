@@ -182,8 +182,11 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 	if err != nil {
 		modTime, err = time.Parse("2006-01-02T15:04:05.00", info.LastChanged)
 		if err != nil {
-			fmt.Println("Error parsing modification time:", err)
-			return nil, err
+			modTime, err = time.Parse("2006-01-02T15:04:05.0", info.LastChanged)
+			if err != nil {
+				fmt.Println("Error parsing modification time:", err)
+				return nil, err
+			}
 		}
 	}
 	return &storagedriver.FileInfoInternal{
