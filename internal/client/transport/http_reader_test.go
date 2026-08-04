@@ -104,7 +104,6 @@ func TestContentEncoding(t *testing.T) {
 	}
 
 	for _, tc := range tests {
-		tc := tc
 		t.Run(tc.encodingHeader, func(t *testing.T) {
 			t.Parallel()
 			content := make([]byte, 128)
@@ -144,5 +143,46 @@ func TestContentEncoding(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestSeekWithUnknownTotalSize(t *testing.T) {
+	t.Parallel()
+
+	content := make([]byte, 128)
+	rand.New(rand.NewSource(1)).Read(content)
+
+	s := httptest.NewServer(http.HandlerFunc(func(rw http.ResponseWriter, r *http.Request) {
+		// Respond to a range request with a 206 whose Content-Range
+		// reports an unknown complete length ("*"), as permitted by
+		// RFC 7233.
+		var start int
+		if _, err := fmt.Sscanf(r.Header.Get("Range"), "bytes=%d-", &start); err != nil || start < 0 || start > len(content) {
+			rw.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		rw.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/*", start, len(content)-1))
+		rw.Header().Set("Content-Length", fmt.Sprintf("%d", len(content)-start))
+		rw.WriteHeader(http.StatusPartialContent)
+		_, _ = rw.Write(content[start:])
+	}))
+	defer s.Close()
+
+	rs := NewHTTPReadSeeker(t.Context(), http.DefaultClient, s.URL, func(r *http.Response) error { return nil })
+	defer rs.Close()
+
+	const offset = 64
+	if _, err := rs.Seek(offset, io.SeekStart); err != nil {
+		t.Fatal(err)
+	}
+
+	b, err := io.ReadAll(rs)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	expected := content[offset:]
+	if !bytes.Equal(b, expected) {
+		t.Errorf("unexpected content: got %d bytes, expected %d", len(b), len(expected))
 	}
 }

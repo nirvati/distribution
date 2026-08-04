@@ -32,8 +32,8 @@ jobs:
       fail-fast: false
       matrix:
         go:
-          - 1.23.7
-          - 1.24.1
+          - 1.25.x
+          - 1.26.2
         target:
           - test-coverage
           - test-s3-storage
@@ -41,19 +41,22 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
       -
         name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6.4.0
         with:
           go-version: ${{ matrix.go }}
+          cache: false
       -
         name: Test
         run: |
           make ${{ matrix.target }}
       -
         name: Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@e79a6962e0d4c0c17b229090214935d2e33f8354 # v6.0.1
         with:
           directory: ./
 
@@ -68,13 +71,14 @@ jobs:
     steps:
       -
         name: Checkout
-        uses: actions/checkout@v5
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       -
         name: Docker meta
         id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9 # v6
         with:
           images: |
             ${{ env.GHCR_SLUG }}
@@ -99,19 +103,19 @@ jobs:
             org.opencontainers.image.description=The toolkit to pack, ship, store, and distribute container content
       -
         name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
 
       -
         name: Log in to GitHub Container registry
         if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
+        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee # v4.2.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          password: ${{ github.token }}
       -
         name: Build artifacts
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@6614cfa25eff9a0b2b2697efb0b6159e7680d584 # v7.2.0
         with:
           source: .
           targets: artifact-all
@@ -133,14 +137,14 @@ jobs:
           tree -nh ./bin
       -
         name: Upload artifacts
-        uses: actions/upload-artifact@v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: registry
           path: ./bin/*
           if-no-files-found: error
       -
         name: Build image
-        uses: docker/bake-action@v6
+        uses: docker/bake-action@6614cfa25eff9a0b2b2697efb0b6159e7680d584 # v7.2.0
         with:
           source: .
           files: |
@@ -150,7 +154,7 @@ jobs:
           push: ${{ github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/') }}
       -
         name: GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         if: startsWith(github.ref, 'refs/tags/')
         with:
           draft: true
@@ -159,4 +163,4 @@ jobs:
             bin/*.provenance.json
             bin/*.sha256
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ github.token }}
