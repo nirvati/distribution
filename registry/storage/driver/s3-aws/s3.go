@@ -682,6 +682,93 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 		return d.newWriter(ctx, key, *resp.UploadId, nil), nil
 	}
 
+	// Look for the multipart upload that should already exist for this key
+	// (created moments earlier by the non-append branch above, in a
+	// separate request). Some S3-compatible backends (e.g. Bunny Storage)
+	// do not make a just-created multipart upload immediately visible via
+	// ListMultipartUploads, so retry with backoff before concluding that no
+	// upload exists. Without this, a fast POST-then-PUT resume can lose the
+	// race and be mistaken for a request to append to a nonexistent path.
+	w, err := d.findMultipartUploadWithRetry(ctx, path, key)
+	if err != nil {
+		return nil, err
+	}
+	if w != nil {
+		return w, nil
+	}
+
+	// No matching multipart upload found even after retries. Stat is
+	// expected to find a zero-byte marker object at this path if the
+	// upload genuinely has no data yet; a NotFound here is retried too,
+	// for the same read-after-write consistency reasons as above.
+	fi, err := d.statWithRetry(ctx, path)
+	if err != nil {
+		return nil, parseError(path, err)
+	}
+
+	if fi.Size() == 0 {
+		resp, err := d.S3.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
+			Bucket:               aws.String(d.Bucket),
+			Key:                  aws.String(key),
+			ContentType:          d.getContentType(),
+			ACL:                  d.getACL(),
+			ServerSideEncryption: d.getEncryptionMode(),
+			SSEKMSKeyId:          d.getSSEKMSKeyID(),
+			StorageClass:         d.getStorageClass(),
+		})
+		if err != nil {
+			return nil, err
+		}
+		return d.newWriter(ctx, key, *resp.UploadId, nil), nil
+	}
+	return nil, storagedriver.Error{
+		DriverName: driverName,
+		Detail:     fmt.Errorf("append to zero-size path %s unsupported", path),
+	}
+}
+
+// listMultipartRetryAttempts and listMultipartRetryBaseDelay control
+// findMultipartUploadWithRetry's backoff. Total worst-case delay across all
+// attempts is roughly 1.5s (150+300+600+... capped), chosen to comfortably
+// cover the ListMultipartUploads visibility lag observed against Bunny
+// Storage without materially slowing down the common case where the upload
+// is already visible on the first call.
+const listMultipartRetryAttempts = 4
+const listMultipartRetryBaseDelay = 150 * time.Millisecond
+
+// findMultipartUploadWithRetry looks for an in-progress multipart upload
+// matching key, retrying with backoff if none is found on the first pass.
+// Returns a nil writer and nil error if no matching upload is found after
+// all retries are exhausted — this is not itself an error, since the upload
+// may genuinely not exist yet (see the zero-size fallback in Writer).
+func (d *driver) findMultipartUploadWithRetry(ctx context.Context, path, key string) (storagedriver.FileWriter, error) {
+	delay := listMultipartRetryBaseDelay
+	for attempt := 0; attempt < listMultipartRetryAttempts; attempt++ {
+		w, err := d.findMultipartUploadOnce(ctx, path, key)
+		if err != nil {
+			return nil, err
+		}
+		if w != nil {
+			return w, nil
+		}
+		if attempt == listMultipartRetryAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+	return nil, nil
+}
+
+// findMultipartUploadOnce performs a single, fully paginated pass over
+// ListMultipartUploads looking for an upload matching key. Returns a nil
+// writer and nil error (not an error) if no matching upload is found in
+// this pass.
+func (d *driver) findMultipartUploadOnce(ctx context.Context, path, key string) (storagedriver.FileWriter, error) {
 	listMultipartUploadsInput := &s3.ListMultipartUploadsInput{
 		Bucket: aws.String(d.Bucket),
 		Prefix: aws.String(key),
@@ -692,37 +779,6 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 			return nil, parseError(path, err)
 		}
 
-		// resp.Uploads can only be empty on the first call
-		// if there were no more results to return after the first call, resp.IsTruncated would have been false
-		// and the loop would be exited without recalling ListMultipartUploads
-		if len(resp.Uploads) == 0 {
-			fi, err := d.Stat(ctx, path)
-			if err != nil {
-				return nil, parseError(path, err)
-			}
-
-			if fi.Size() == 0 {
-				resp, err := d.S3.CreateMultipartUploadWithContext(ctx, &s3.CreateMultipartUploadInput{
-					Bucket:               aws.String(d.Bucket),
-					Key:                  aws.String(key),
-					ContentType:          d.getContentType(),
-					ACL:                  d.getACL(),
-					ServerSideEncryption: d.getEncryptionMode(),
-					SSEKMSKeyId:          d.getSSEKMSKeyID(),
-					StorageClass:         d.getStorageClass(),
-				})
-				if err != nil {
-					return nil, err
-				}
-				return d.newWriter(ctx, key, *resp.UploadId, nil), nil
-			}
-			return nil, storagedriver.Error{
-				DriverName: driverName,
-				Detail:     fmt.Errorf("append to zero-size path %s unsupported", path),
-			}
-		}
-
-		var allParts []*s3.Part
 		for _, multi := range resp.Uploads {
 			if key != *multi.Key {
 				continue
@@ -736,7 +792,7 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 			if err != nil {
 				return nil, parseError(path, err)
 			}
-			allParts = append(allParts, partsList.Parts...)
+			allParts := partsList.Parts
 			for *partsList.IsTruncated {
 				partsList, err = d.S3.ListPartsWithContext(ctx, &s3.ListPartsInput{
 					Bucket:           aws.String(d.Bucket),
@@ -761,7 +817,7 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 			break
 		}
 	}
-	return nil, storagedriver.PathNotFoundError{Path: path}
+	return nil, nil
 }
 
 func (d *driver) statHead(ctx context.Context, path string) (*storagedriver.FileInfoFields, error) {
@@ -834,6 +890,48 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 		return nil, err
 	}
 	return storagedriver.FileInfoInternal{FileInfoFields: *fi}, nil
+}
+
+// statRetryAttempts and statRetryBaseDelay control statWithRetry's backoff.
+// Total worst-case delay across all attempts is roughly 700ms
+// (100+200+400), which comfortably covers the replication lag observed
+// against Bunny Storage without materially slowing down the common case
+// where the object is already visible.
+const statRetryAttempts = 4
+const statRetryBaseDelay = 100 * time.Millisecond
+
+// statWithRetry calls Stat and, if it fails with a PathNotFoundError,
+// retries with exponential backoff before giving up. This exists because
+// some S3-compatible backends (e.g. Bunny Storage) do not guarantee
+// read-after-write consistency: an object written moments ago by a
+// different request may not yet be visible to a HeadObject/ListObjects
+// call. Errors other than PathNotFoundError are returned immediately
+// without retrying, since retrying won't help a permissions or network
+// error and would only slow down the failure.
+func (d *driver) statWithRetry(ctx context.Context, path string) (storagedriver.FileInfo, error) {
+	var fi storagedriver.FileInfo
+	var err error
+
+	delay := statRetryBaseDelay
+	for attempt := 0; attempt < statRetryAttempts; attempt++ {
+		fi, err = d.Stat(ctx, path)
+		if err == nil {
+			return fi, nil
+		}
+		if _, ok := err.(storagedriver.PathNotFoundError); !ok {
+			return nil, err
+		}
+		if attempt == statRetryAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+	return nil, err
 }
 
 // List returns a list of the objects that are direct descendants of the given path.
