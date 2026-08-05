@@ -696,7 +696,7 @@ func (d *driver) Writer(ctx context.Context, path string, appendMode bool) (stor
 		// if there were no more results to return after the first call, resp.IsTruncated would have been false
 		// and the loop would be exited without recalling ListMultipartUploads
 		if len(resp.Uploads) == 0 {
-			fi, err := d.statWithRetry(ctx, path)
+			fi, err := d.Stat(ctx, path)
 			if err != nil {
 				return nil, parseError(path, err)
 			}
@@ -834,35 +834,6 @@ func (d *driver) Stat(ctx context.Context, path string) (storagedriver.FileInfo,
 		return nil, err
 	}
 	return storagedriver.FileInfoInternal{FileInfoFields: *fi}, nil
-}
-
-const statRetryAttempts = 4
-const statRetryBaseDelay = 100 * time.Millisecond
-
-func (d *driver) statWithRetry(ctx context.Context, path string) (storagedriver.FileInfo, error) {
-	var fi storagedriver.FileInfo
-	var err error
-
-	delay := statRetryBaseDelay
-	for attempt := 0; attempt < statRetryAttempts; attempt++ {
-		fi, err = d.Stat(ctx, path)
-		if err == nil {
-			return fi, nil
-		}
-		if _, ok := err.(storagedriver.PathNotFoundError); !ok {
-			return nil, err
-		}
-		if attempt == statRetryAttempts-1 {
-			break
-		}
-		select {
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		case <-time.After(delay):
-		}
-		delay *= 2
-	}
-	return nil, err
 }
 
 // List returns a list of the objects that are direct descendants of the given path.
