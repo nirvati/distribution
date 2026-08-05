@@ -1101,20 +1101,18 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 	return nil
 }
 
-func (d *Driver) PublicURL(path string) (string, error) {
-	drv := d.StorageDriver.(*driver)
-	if drv.PublicURLBase == nil {
+func (d *driver) PublicURL(path string) (string, error) {
+	if d.PublicURLBase == nil {
 		return "", fmt.Errorf("no publicurl configured for this driver")
 	}
 
-	key := drv.s3Path(path)
+	key := d.s3Path(path)
 
-	u := *drv.PublicURLBase
+	u := *d.PublicURLBase
 	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(key, "/")
 
 	return u.String(), nil
 }
-
 
 // RedirectURL returns a URL which may be used to retrieve the content stored at the given path.
 func (d *driver) RedirectURL(r *http.Request, path string) (string, error) {
