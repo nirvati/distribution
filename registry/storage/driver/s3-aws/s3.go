@@ -119,6 +119,8 @@ type DriverParameters struct {
 	UseFIPSEndpoint             bool
 	LogLevel                    aws.LogLevelType
 	RedirectEndpoint            string
+	UseSingleDelete             bool
+	PublicURL                   string
 }
 
 func init() {
@@ -168,6 +170,8 @@ type driver struct {
 	StorageClass                string
 	ObjectACL                   string
 	RedirectEndpoint            *url.URL
+	UseSingleDelete             bool
+	PublicURLBase               *url.URL
 	pool                        *sync.Pool
 }
 
@@ -338,9 +342,19 @@ func FromParameters(ctx context.Context, parameters map[string]any) (*Driver, er
 		return nil, err
 	}
 
+	useSingleDeleteBool, err := getParameterAsBool(parameters, "usesingledelete", false)
+	if err != nil {
+		return nil, err
+	}
+
 	redirectEndpoint := parameters["redirectendpoint"]
 	if redirectEndpoint == nil {
 		redirectEndpoint = ""
+	}
+
+	publicURL := parameters["publicurl"]
+	if publicURL == nil {
+		publicURL = ""
 	}
 
 	params := DriverParameters{
@@ -369,6 +383,8 @@ func FromParameters(ctx context.Context, parameters map[string]any) (*Driver, er
 		UseFIPSEndpoint:             useFIPSEndpointBool,
 		LogLevel:                    getS3LogLevelFromParam(parameters["loglevel"]),
 		RedirectEndpoint:            fmt.Sprint(redirectEndpoint),
+		UseSingleDelete:             useSingleDeleteBool,
+		PublicURL:                   fmt.Sprint(publicURL),
 	}
 
 	return New(ctx, params)
@@ -541,6 +557,7 @@ func New(ctx context.Context, params DriverParameters) (*Driver, error) {
 		RootDirectory:               params.RootDirectory,
 		StorageClass:                params.StorageClass,
 		ObjectACL:                   params.ObjectACL,
+		UseSingleDelete:             params.UseSingleDelete,
 		pool: &sync.Pool{
 			New: func() any { return &bytes.Buffer{} },
 		},
@@ -567,6 +584,20 @@ func New(ctx context.Context, params DriverParameters) (*Driver, error) {
 		}
 
 		d.RedirectEndpoint = u
+	}
+
+	if params.PublicURL != "" {
+		u, err := url.Parse(params.PublicURL)
+		if err != nil {
+			return nil, fmt.Errorf("unable to parse publicurl: %w", err)
+		}
+		if u.Scheme == "" {
+			return nil, fmt.Errorf("no scheme specified for publicurl")
+		}
+		if u.Host == "" {
+			return nil, fmt.Errorf("no host specified for publicurl")
+		}
+		d.PublicURLBase = u
 	}
 
 	return &Driver{
@@ -1007,31 +1038,49 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 
 		// Delete objects only if the list is not empty, otherwise S3 API returns a cryptic error
 		if len(s3Objects) > 0 {
-			// NOTE: according to AWS docs https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
-			// by default the response returns up to 1,000 key names. The response _might_ contain fewer keys but it will never contain more.
-			// 10000 keys is coincidentally (?) also the max number of keys that can be deleted in a single Delete operation, so we'll just smack
-			// Delete here straight away and reset the object slice when successful.
-			resp, err := d.S3.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
-				Bucket: aws.String(d.Bucket),
-				Delete: &s3.Delete{
-					Objects: s3Objects,
-					Quiet:   aws.Bool(false),
-				},
-			})
-			if err != nil {
-				return err
-			}
-
-			if len(resp.Errors) > 0 {
-				// NOTE: AWS SDK s3.Error does not implement error interface which
-				// is pretty intensely sad, so we have to do away with this for now.
-				errs := make([]error, 0, len(resp.Errors))
-				for _, err := range resp.Errors {
-					errs = append(errs, errors.New(err.String()))
+			if d.UseSingleDelete {
+				var errs []error
+				for _, obj := range s3Objects {
+					if _, err := d.S3.DeleteObjectWithContext(ctx, &s3.DeleteObjectInput{
+						Bucket: aws.String(d.Bucket),
+						Key:    obj.Key,
+					}); err != nil {
+						errs = append(errs, fmt.Errorf("%s: %w", aws.StringValue(obj.Key), err))
+					}
 				}
-				return storagedriver.Errors{
-					DriverName: driverName,
-					Errs:       errs,
+				if len(errs) > 0 {
+					return storagedriver.Errors{
+						DriverName: driverName,
+						Errs:       errs,
+					}
+				}
+			} else {
+				// NOTE: according to AWS docs https://docs.aws.amazon.com/AmazonS3/latest/API/API_ListObjectsV2.html
+				// by default the response returns up to 1,000 key names. The response _might_ contain fewer keys but it will never contain more.
+				// 10000 keys is coincidentally (?) also the max number of keys that can be deleted in a single Delete operation, so we'll just smack
+				// Delete here straight away and reset the object slice when successful.
+				resp, err := d.S3.DeleteObjectsWithContext(ctx, &s3.DeleteObjectsInput{
+					Bucket: aws.String(d.Bucket),
+					Delete: &s3.Delete{
+						Objects: s3Objects,
+						Quiet:   aws.Bool(false),
+					},
+				})
+				if err != nil {
+					return err
+				}
+
+				if len(resp.Errors) > 0 {
+					// NOTE: AWS SDK s3.Error does not implement error interface which
+					// is pretty intensely sad, so we have to do away with this for now.
+					errs := make([]error, 0, len(resp.Errors))
+					for _, err := range resp.Errors {
+						errs = append(errs, errors.New(err.String()))
+					}
+					return storagedriver.Errors{
+						DriverName: driverName,
+						Errs:       errs,
+					}
 				}
 			}
 		}
@@ -1052,8 +1101,27 @@ func (d *driver) Delete(ctx context.Context, path string) error {
 	return nil
 }
 
+func (d *Driver) PublicURL(path string) (string, error) {
+	drv := d.StorageDriver.(*driver)
+	if drv.PublicURLBase == nil {
+		return "", fmt.Errorf("no publicurl configured for this driver")
+	}
+
+	key := drv.s3Path(path)
+
+	u := *drv.PublicURLBase
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + strings.TrimLeft(key, "/")
+
+	return u.String(), nil
+}
+
+
 // RedirectURL returns a URL which may be used to retrieve the content stored at the given path.
 func (d *driver) RedirectURL(r *http.Request, path string) (string, error) {
+	if d.PublicURLBase != nil {
+		return d.PublicURL(path)
+	}
+
 	expiresIn := 20 * time.Minute
 
 	var req *request.Request
