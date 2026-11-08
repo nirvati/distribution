@@ -34,7 +34,10 @@ func (bs *blobServer) ServeBlob(ctx context.Context, w http.ResponseWriter, r *h
 		return err
 	}
 
-	if bs.redirect {
+	// HEAD requests are answered here: a redirect would let the storage
+	// backend or a CDN in front of it report the size instead of the
+	// registry's descriptor.
+	if bs.redirect && r.Method != http.MethodHead {
 		redirectURL, err := bs.driver.RedirectURL(r, path)
 		if err != nil {
 			return err

@@ -130,7 +130,7 @@ func init() {
 			ChunkSize:                   minChunkSize,
 			MultipartCopyChunkSize:      defaultMultipartCopyChunkSize,
 			MultipartCopyMaxConcurrency: defaultMultipartCopyMaxConcurrency,
-			MultipartCopyThresholdSize:  defaultMultipartCopyThresholdSize,
+			MultipartCopyThresholdSize:  32 * 1024 * 1024, // small, so tests exercise multipart copy
 			RootDirectory:               rootDirectory,
 			StorageClass:                storageClass,
 			UserAgent:                   driverName + "-test",

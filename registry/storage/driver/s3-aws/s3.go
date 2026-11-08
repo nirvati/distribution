@@ -63,8 +63,17 @@ const (
 
 	// defaultMultipartCopyThresholdSize defines the default object size
 	// above which multipart copy will be used. (PUT Object - Copy is used
-	// for objects at or below this size.)  Empirically, 32 MB is optimal.
-	defaultMultipartCopyThresholdSize = 32 * 1024 * 1024
+	// for objects at or below this size.) Bunny's S3 compatibility briefly
+	// reports only the first part of a multipart copy, so copies use a single
+	// PUT Object - Copy up to S3's 5 GB limit unless configured otherwise.
+	defaultMultipartCopyThresholdSize = maxChunkSize
+)
+
+// moveSizeRetryAttempts and moveSizeRetryBaseDelay control how long Move
+// waits for the copied object to report the source's size before giving up.
+const (
+	moveSizeRetryAttempts  = 8
+	moveSizeRetryBaseDelay = 100 * time.Millisecond
 )
 
 // listMax is the largest amount of objects you can request from S3 in a list call
@@ -1003,10 +1012,46 @@ func (d *driver) List(ctx context.Context, opath string) ([]string, error) {
 // object.
 func (d *driver) Move(ctx context.Context, sourcePath, destPath string) error {
 	/* This is terrible, but aws doesn't have an actual move. */
+	src, err := d.Stat(ctx, sourcePath)
+	if err != nil {
+		return parseError(sourcePath, err)
+	}
 	if err := d.copy(ctx, sourcePath, destPath); err != nil {
 		return err
 	}
+	// The source is deleted only once the copy is complete: some S3
+	// implementations (Bunny) report a partial size right after a copy.
+	if err := d.waitForSize(ctx, destPath, src.Size()); err != nil {
+		return err
+	}
 	return d.Delete(ctx, sourcePath)
+}
+
+// waitForSize polls the object at path until it reports size bytes.
+func (d *driver) waitForSize(ctx context.Context, path string, size int64) error {
+	delay := moveSizeRetryBaseDelay
+	var got int64 = -1
+	for attempt := 0; attempt < moveSizeRetryAttempts; attempt++ {
+		fi, err := d.Stat(ctx, path)
+		if err == nil {
+			got = fi.Size()
+			if got == size {
+				return nil
+			}
+		} else if _, ok := err.(storagedriver.PathNotFoundError); !ok {
+			return err
+		}
+		if attempt == moveSizeRetryAttempts-1 {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+		delay *= 2
+	}
+	return fmt.Errorf("s3aws: %s reports %d bytes after copy, want %d", path, got, size)
 }
 
 // copy copies an object stored at sourcePath to destPath.
