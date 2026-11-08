@@ -284,7 +284,7 @@ func (b *BunnyFileWriter) Cancel(context.Context) error {
 
 // Commit implements driver.FileWriter.
 func (b *BunnyFileWriter) Commit(context.Context) error {
-	fmt.Println("Comitting to BunnyFileWriter for path:", b.path)
+	fmt.Println("Committing to BunnyFileWriter for path:", b.path)
 	return nil
 }
 
